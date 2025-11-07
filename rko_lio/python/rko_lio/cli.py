@@ -83,7 +83,7 @@ def cli(
         ...,
         exists=True,
         help="Path to data folder",
-        file_okay=False,
+        # file_okay=False,
         dir_okay=True,
         readable=True,
     ),
@@ -264,6 +264,13 @@ def cli(
     pipeline_config = PipelineConfig(**user_config)
 
     from .dataloaders import dataloader_factory
+
+    if 'base_frame' in user_config:
+        base_frame = user_config['base_frame']
+    if 'imu_frame' in user_config:
+        imu_frame = user_config['imu_frame']
+    if 'lidar_frame' in user_config:
+        lidar_frame = user_config['lidar_frame']
 
     dataloader = dataloader_factory(
         name=dataloader_name,

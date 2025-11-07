@@ -83,9 +83,9 @@ class RosbagDataLoader:
         **kwargs,
     ):
         """query_tf_tree: try to query a tf tree if it exists"""
-        assert (
-            data_path.is_dir()
-        ), "Pass a directory to data_path with ros1 or ros2 bag files"
+        # assert (
+        #     data_path.is_dir()
+        # ), "Pass a directory to data_path with ros1 or ros2 bag files"
 
         ros1_bagfiles = sorted(list(data_path.glob("*.bag")))
         bagfiles = None

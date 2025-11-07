@@ -25,7 +25,7 @@ from pathlib import Path
 
 
 def available_dataloaders():
-    return ["rosbag", "raw", "helipr"]
+    return ['rosbag', 'raw', 'helipr', 'ouster']
 
 
 def dataloader_factory(name: str | None, data_path: Path, *args, **kwargs):
@@ -46,6 +46,11 @@ def dataloader_factory(name: str | None, data_path: Path, *args, **kwargs):
         from .helipr import HeliprDataLoader
 
         return HeliprDataLoader(data_path, *args, **kwargs)
+
+    elif name == "ouster":
+        from .ouster_packets import OusterPacketLoader
+
+        return OusterPacketLoader(data_path, *args, **kwargs)
 
     raise ValueError(f"Unknown dataloader: {name}")
 
