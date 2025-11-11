@@ -26,42 +26,94 @@ import numpy as np
 from pyquaternion import Quaternion
 from tqdm import tqdm
 
-from ...util import error
+from ...util import info, error, error_and_exit
 
 
-def create_static_tf_tree(bag):
+class Transform:
+    child_id: str = None
+    parent_id: str = None
+    translation: np.ndarray = None
+    rotation: Quaternion = None
+
+    def __init__(
+        self,
+        child_id: str = None,
+        parent_id: str = None,
+        translation: np.ndarray = None,
+        rotation: Quaternion = None,
+    ):
+        self.child_id = child_id
+        self.parent_id = parent_id
+        self.translation = translation
+        self.rotation = rotation
+
+    @classmethod
+    def from_tf_message(cls, tf_msg):
+        q = tf_msg.transform.rotation
+        t = tf_msg.transform.translation
+        return cls(
+            child_id=tf_msg.child_frame_id,
+            parent_id=tf_msg.header.frame_id,
+            translation=[t.x, t.y, t.z],
+            rotation=Quaternion(x=q.x, y=q.y, z=q.z, w=q.w),
+        )
+
+    @classmethod
+    def from_tf_file(cls, tf_file_obj):
+        q = tf_file_obj['transform']['rotation']
+        t = tf_file_obj['transform']['translation']
+        return cls(
+            child_id=tf_file_obj['child_frame_id'],
+            parent_id=tf_file_obj['header']['frame_id'],
+            translation=[t['x'], t['y'], t['z']],
+            rotation=Quaternion(x=q['x'], y=q['y'], z=q['z'], w=q['w']),
+        )
+
+
+def build_transform_matrix(transform: Transform):
+
+    T = np.eye(4)
+    T[:3, :3] = transform.rotation.rotation_matrix
+    T[:3, 3] = transform.translation
+
+    return (transform.parent_id, T)
+
+
+def create_static_tf_tree(bag, tf_file: str = None):
     """
     Build a static TF tree from only '/tf_static' messages.
+    Optional check for valid tf_tree file
 
     Returns:
         dict: { child_frame_id: (parent_frame_id, transform) }
     """
     tf_tree = {}
+    from pathlib import Path
+
+    if tf_file is not None:
+        tf_filepath = Path(tf_file)
+        if tf_filepath.exists():
+            info(f'TF-File found, try loading TF-Tree from file..')
+            import yaml
+
+            tfs = yaml.safe_load(tf_filepath.read_text())
+            for transform in tfs['transforms']:
+                new_transform = Transform.from_tf_file(transform)
+                tf_tree[new_transform.child_id] = build_transform_matrix(new_transform)
     if not "/tf_static" in bag.topics:
         return tf_tree
 
-    tf_static_connections = [
-        conn for conn in bag.connections if (conn.topic == "/tf_static")
-    ]
+    tf_static_connections = [conn for conn in bag.connections if (conn.topic == "/tf_static")]
     for _, _, rawdata in tqdm(
         bag.messages(connections=tf_static_connections),
         desc="/tf_static messages",
         total=bag.topics["/tf_static"].msgcount,
     ):
         msg = bag.deserialize(rawdata, "tf2_msgs/msg/TFMessage")
-
         for transform_stamped in msg.transforms:
-            child = transform_stamped.child_frame_id
-            parent = transform_stamped.header.frame_id
-
-            t = transform_stamped.transform.translation
-            q = transform_stamped.transform.rotation
-            T = np.eye(4)
-            T[:3, :3] = Quaternion(x=q.x, y=q.y, z=q.z, w=q.w).rotation_matrix
-            T[:3, 3] = [t.x, t.y, t.z]
-
-            tf_tree[child] = (parent, T)
-
+            new_transform = Transform.from_tf_message(transform_stamped)
+            tf_tree[new_transform.child_id] = build_transform_matrix(new_transform)
+    print(f'Loaded TF-Tree: {tf_tree}')
     return tf_tree
 
 

@@ -1,5 +1,6 @@
 import math
 from pathlib import Path
+import time
 
 import numpy as np
 from ouster.sdk.bag import BagPacketSource
@@ -28,6 +29,7 @@ class OusterPacketLoader:
         *args,
         **kwargs,
     ):
+        self.lio_cfg = lio_cfg
         self.record_path = lio_cfg.data_loader_cfg.data_path
         self.num_lidar_scans = 0
         self.num_imu_msgs = 0
@@ -60,6 +62,7 @@ class OusterPacketLoader:
         bag_path = [Path(self.record_path)]
         self.bag = AnyReader(bag_path)
         self.record_duration = 0
+        self.replay_duration = None
 
     def __iter__(self):
         return self
@@ -67,7 +70,8 @@ class OusterPacketLoader:
     def __next__(self):
         while True:
             with ScopedProfiler('Ouster Dataloader') as data_timer:
-
+                if self.replay_duration is None:
+                    self.replay_duration = data_timer.start
                 idx, packet = next(self.packet_iter)
                 if packet is None:
                     continue
@@ -88,17 +92,24 @@ class OusterPacketLoader:
         return self.num_imu_msgs + self.num_lidar_scans
 
     def __del__(self):
+        self.replay_duration = time.perf_counter() - self.replay_duration
+        speed_factor = self.record_duration / self.replay_duration
+        print(
+            f'Replay statistics:\n'
+            f'\trecord duration: {self.record_duration:.2f} secs\n'
+            f'\treplay duration: {self.replay_duration:.2f} secs\n'
+            f'\tspeed-factor: {speed_factor:.2f}'
+        )
         if self.bag.isopen:
             self.bag.close()
 
     @property
     def extrinsics(self):
         self.bag.open()
-        info(f'rosbag in ouster opened')
         if self.T_imu_to_base is None or self.T_lidar_to_base is None:
             info('Trying to obtain extrinsics from the data.')
             print('Building TF tree.')
-            static_tf_tree = create_static_tf_tree(self.bag)
+            static_tf_tree = create_static_tf_tree(self.bag, self.lio_cfg.tf_cfg.tf_file)
             if not static_tf_tree:
                 error_and_exit(
                     "The rosbag doesn't contain a static tf tree, cannot query it for extrinsics. "
@@ -119,7 +130,7 @@ class OusterPacketLoader:
         self.num_lidar_scans = int(
             self.bag.topics['/ouster/lidar_packets'].msgcount / self.lidar_packets_per_frame
         )
-        self.record_duration = self.bag.duration
+        self.record_duration = self.bag.duration / 1e9
         self.bag.close()
         return self.T_imu_to_base, self.T_lidar_to_base
 

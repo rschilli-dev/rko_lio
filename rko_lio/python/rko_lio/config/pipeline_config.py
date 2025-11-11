@@ -56,7 +56,6 @@ class TransformConfig(BaseModel):
     tf_file: Optional[str] = None
 
     def init_tf(self):
-        # TODO: add function to optionally parse tf file
         if self.extrinsic_imu2base_quat_xyzw_xyz is not None:
             self.extrinsic_imu2base = quat_xyzw_xyz_to_transform(
                 np.asarray(self.extrinsic_imu2base_quat_xyzw_xyz)
