@@ -25,9 +25,10 @@ Entrypoint typer application for the python wrapper.
 """
 
 from pathlib import Path
+from rko_lio.config.pipeline_config import PipelineConfig
 
 import typer
-
+import yaml
 from .util import (
     error_and_exit,
     info,
@@ -44,18 +45,15 @@ def version_callback(value: bool):
         raise typer.Exit(0)
 
 
-def dump_config_callback(value: bool):
-    if value:
-        import yaml
+def dump_config_callback():
 
-        from .config import PipelineConfig
-
-        with open("config.yaml", "w") as f:
-            yaml.dump(PipelineConfig.default_dict(), f, default_flow_style=False)
-        info(
-            "Default config dumped to config.yaml. Note that the extrinsics are left as an empty list. If you need them, you need to specify them as \[qx, qy, qz, qw, x, y, z]. Delete all the keys you don't need."
-        )
-        raise typer.Exit(0)
+    with open('config.yaml', 'w') as f:
+        dumping_cfg = PipelineConfig().model_dump()
+        yaml.dump(dumping_cfg, f, default_flow_style=False, sort_keys=False)
+    info(
+        "Default config dumped to config.yaml. Note that the extrinsics are left as an empty list. If you need them, you need to specify them as \[qx, qy, qz, qw, x, y, z]. Delete all the keys you don't need."
+    )
+    raise typer.Exit(0)
 
 
 def dataloader_name_callback(value: str):
@@ -76,164 +74,181 @@ app = typer.Typer()
 
 
 @app.command(
-    epilog="Please open an issue on https://github.com/PRBonn/rko_lio if the usage of any option is unclear or you need some help!"
+    epilog='Please open an issue on https://github.com/PRBonn/rko_lio if the usage of any option is unclear or you need some help!'
 )
-def cli(
-    data_path: Path = typer.Argument(
-        ...,
+def pipeline(
+    ctx: typer.Context,
+    data_path: Path = typer.Option(
+        None,
+        '--data_path',
         exists=True,
-        help="Path to data folder",
+        help='Path to data folder',
         # file_okay=False,
         dir_okay=True,
         readable=True,
     ),
-    config_fp: Path | None = typer.Option(
-        None,
-        "--config",
-        "-c",
-        exists=True,
-        help="Path to config.yaml",
-        file_okay=True,
-        dir_okay=False,
-        readable=True,
-    ),
     dataloader_name: str | None = typer.Option(
         None,
-        "--dataloader",
-        "-d",
-        help="Specify a dataloader: [rosbag, raw, helipr]. Leave empty to guess one",
+        '--dataloader',
+        '-d',
+        help='Specify a dataloader: [rosbag, raw, helipr]. Leave empty to guess one',
         show_choices=True,
         callback=dataloader_name_callback,
         case_sensitive=False,
     ),
     viz: bool = typer.Option(
         False,
-        "--viz",
-        "-v",
-        help="Enable Rerun visualization",
-        rich_help_panel="Visualisation options",
+        '--viz',
+        '-v',
+        help='Enable Rerun visualization',
+        rich_help_panel='Visualisation options',
     ),
     viz_every_n_frames: int = typer.Option(
-        20,
-        "--viz_frame_skip",
-        help="Publish (rerun) LiDAR information after specified number of frames. A low value will slow down the entire pipeline as logging LiDAR data is expensive.",
-        rich_help_panel="Visualisation options",
+        None,
+        '--viz_frame_skip',
+        help='Publish (rerun) LiDAR information after specified number of frames. A low value will slow down the entire pipeline as logging LiDAR data is expensive.',
+        rich_help_panel='Visualisation options',
     ),
     rbl_path: Path | None = typer.Option(
         None,
-        "--rbl",
+        '--rbl',
         exists=True,
-        help="Path to a rerun blueprint file (.rbl). Leave empty to use the default rerun configuration. Respects --no_reset_viz if set",
+        help='Path to a rerun blueprint file (.rbl). Leave empty to use the default rerun configuration. Respects --no_reset_viz if set',
         file_okay=True,
         dir_okay=False,
         readable=True,
-        rich_help_panel="Visualisation options",
+        rich_help_panel='Visualisation options',
     ),
     reset_viz: bool = typer.Option(
-        True,
-        " /--no_reset_viz",
-        help="Pass this option to disable resetting rerun viewer configuration as per the blueprint (default or with --rbl). Useful if you want to take advantage of rerun's caching behaviour.",
+        None,
+        ' /--no_reset_viz',
+        help='Pass this option to disable resetting rerun viewer configuration as per the blueprint (default or with --rbl). Useful if you want to take advantage of rerun`s caching behaviour.',
         show_default=False,
-        rich_help_panel="Visualisation options",
+        rich_help_panel='Visualisation options',
     ),
     log_results: bool = typer.Option(
-        False,
-        "--log",
-        "-l",
-        help="Log trajectory results to disk at 'log_dir' on completion",
-        rich_help_panel="Disk logging options",
+        None,
+        '--log',
+        '-l',
+        help='Log trajectory results to disk at `log_dir` on completion',
+        rich_help_panel='Disk logging options',
     ),
     log_dir: Path | None = typer.Option(
         None,
-        "--log_dir",
-        "-o",
-        help="Where to dump LIO results if logging. If unspecified, and logging is enabled, a folder `results` will be created in the current directory.",
+        '--log_dir',
+        '-o',
+        help='Where to dump LIO results if logging. If unspecified, and logging is enabled, a folder `results` will be created in the current directory.',
         file_okay=False,
         dir_okay=True,
         writable=True,
-        rich_help_panel="Disk logging options",
+        rich_help_panel='Disk logging options',
     ),
     run_name: str | None = typer.Option(
         None,
-        "--run_name",
-        "-n",
-        help="Name prefix for output files if logging. Leave empty to take the name from the data_path argument",
-        rich_help_panel="Disk logging options",
+        '--run_name',
+        '-n',
+        help='Name prefix for output files if logging. Leave empty to take the name from the data_path argument',
+        rich_help_panel='Disk logging options',
     ),
     dump_deskewed_scans: bool = typer.Option(
-        False,
-        "--dump_deskewed",
-        help="Dump each deskewed/motion-undistorted scan as a .ply file under log_dir/run_name, only if logging with --log",
-        rich_help_panel="Disk logging options",
+        None,
+        '--dump_deskewed',
+        help='Dump each deskewed/motion-undistorted scan as a .ply file under log_dir/run_name, only if logging with --log',
+        rich_help_panel='Disk logging options',
     ),
     sequence: str | None = typer.Option(
         None,
-        "--sequence",
-        help="Extra dataloader argument: sensor sequence",
-        rich_help_panel="HeLiPR dataloader options",
+        '--sequence',
+        help='Extra dataloader argument: sensor sequence',
+        rich_help_panel='HeLiPR dataloader options',
     ),
     imu_topic: str | None = typer.Option(
         None,
-        "--imu",
-        help="Extra dataloader argument: imu topic",
-        rich_help_panel="Rosbag dataloader options",
+        '--imu',
+        help='Extra dataloader argument: imu topic',
+        rich_help_panel='Rosbag dataloader options',
     ),
     lidar_topic: str | None = typer.Option(
         None,
-        "--lidar",
-        help="Extra dataloader argument: lidar topic",
-        rich_help_panel="Rosbag dataloader options",
+        '--lidar',
+        help='Extra dataloader argument: lidar topic',
+        rich_help_panel='Rosbag dataloader options',
     ),
     base_frame: str | None = typer.Option(
         None,
-        "--base_frame",
-        help="Extra dataloader argument: base_frame for odometry estimation, default is lidar frame",
-        rich_help_panel="Rosbag dataloader options",
+        '--base_frame',
+        help='Extra dataloader argument: base_frame for odometry estimation, default is lidar frame',
+        rich_help_panel='Rosbag dataloader options',
     ),
     imu_frame: str | None = typer.Option(
         None,
-        "--imu_frame",
-        help="Extra dataloader argument: imu frame overload",
-        rich_help_panel="Rosbag dataloader options",
+        '--imu_frame',
+        help='Extra dataloader argument: imu frame overload',
+        rich_help_panel='Rosbag dataloader options',
     ),
     lidar_frame: str | None = typer.Option(
         None,
-        "--lidar_frame",
-        help="Extra dataloader argument: lidar frame overload",
-        rich_help_panel="Rosbag dataloader options",
-    ),
-    version: bool | None = typer.Option(
-        None,
-        "--version",
-        help="Print the current version of RKO_LIO and exit",
-        callback=version_callback,
-        is_eager=True,
-        rich_help_panel="Auxilary commands",
-    ),
-    dump_config: bool | None = typer.Option(
-        None,
-        "--dump_config",
-        help="Dump the default config to config.yaml and exit",
-        callback=dump_config_callback,
-        is_eager=True,
-        rich_help_panel="Auxilary commands",
+        '--lidar_frame',
+        help='Extra dataloader argument: lidar frame overload',
+        rich_help_panel='Rosbag dataloader options',
     ),
 ):
     """
     Run RKO_LIO with the selected dataloader and parameters.
     """
 
+    user_config: PipelineConfig = ctx.obj
+
+    # Update config if CLI overwrite is given
+    if data_path:
+        user_config.data_loader_cfg.data_path = data_path
+    if dataloader_name:
+        user_config.data_loader_cfg.name = dataloader_name
     if viz:
+        user_config.viz = viz
+    if reset_viz:
+        user_config.reset_viz = reset_viz
+    if viz_every_n_frames:
+        user_config.viz_every_n_frames = viz_every_n_frames
+    if log_results:
+        user_config.log_cfg.log_results = log_results
+    if log_dir:
+        user_config.log_cfg.log_dir = log_dir
+    if run_name:
+        user_config.log_cfg.run_name = run_name
+    if dump_deskewed_scans:
+        user_config.log_cfg.dump_deskewed_scans = dump_deskewed_scans
+    if sequence:
+        user_config.data_loader_cfg.helipr_cfg.sequence = sequence
+    if imu_topic:
+        user_config.data_loader_cfg.rosbag_cfg.imu_topic = imu_topic
+    if lidar_topic:
+        user_config.data_loader_cfg.rosbag_cfg.lidar_topic = lidar_topic
+    if base_frame:
+        user_config.data_loader_cfg.rosbag_cfg.base_frame_id = base_frame
+    if imu_frame:
+        user_config.data_loader_cfg.rosbag_cfg.imu_frame_id = imu_frame
+    if lidar_frame:
+        user_config.data_loader_cfg.rosbag_cfg.lidar_frame_id = lidar_frame
+
+    if (
+        user_config.data_loader_cfg.data_path is None
+        or not Path(user_config.data_loader_cfg.data_path).exists()
+    ):
+        error_and_exit(f'Given data_path doesnt exist: {user_config.data_loader_cfg.data_path}')
+    # apply additional modifications
+    if not run_name:
+        user_config.log_cfg.run_name = Path(user_config.data_loader_cfg.data_path).name
+
+    if user_config.viz:
         try:
             import rerun as rr
 
-            rr.init("rko_lio")
-            rr.spawn(memory_limit="2GB")
-            if reset_viz:
+            rr.init('rko_lio')
+            rr.spawn(memory_limit='2GB')
+            if user_config.reset_viz:
                 rr.log_file_from_path(
-                    Path(__file__).parent / "rko_lio.rbl"
-                    if rbl_path is None
-                    else rbl_path
+                    Path(__file__).parent / 'rko_lio.rbl' if rbl_path is None else rbl_path
                 )
 
         except ImportError:
@@ -241,94 +256,92 @@ def cli(
                 "Please install rerun with `pip install rerun-sdk` to enable visualization."
             )
 
-    user_config = {}
-    if config_fp:
-        with open(config_fp, "r") as f:
-            import yaml
-
-            user_config.update(yaml.safe_load(f))
-    user_config["log_dir"] = log_dir or user_config.get("log_dir", "results")
-    user_config["run_name"] = run_name or user_config.get("run_name", data_path.name)
-    user_config["dump_deskewed_scans"] = log_results and (
-        dump_deskewed_scans or user_config.get("dump_deskewed_scans", False)
-    )
-    invalid_keys = ["viz", "viz_every_n_frames"]
-    for key in invalid_keys:
-        if key in user_config:
-            warning(f"{key} specified in config will be ignored.")
-    user_config["viz"] = viz
-    user_config["viz_every_n_frames"] = viz_every_n_frames
-
-    from .config import PipelineConfig
-
-    pipeline_config = PipelineConfig(**user_config)
+    # pipeline_config = PipelineConfig(**user_config)
 
     from .dataloaders import dataloader_factory
 
-    if 'base_frame' in user_config:
-        base_frame = user_config['base_frame']
-    if 'imu_frame' in user_config:
-        imu_frame = user_config['imu_frame']
-    if 'lidar_frame' in user_config:
-        lidar_frame = user_config['lidar_frame']
-
     dataloader = dataloader_factory(
-        name=dataloader_name,
-        data_path=data_path,
-        sequence=sequence,
-        imu_topic=imu_topic,
-        lidar_topic=lidar_topic,
-        imu_frame_id=imu_frame,
-        lidar_frame_id=lidar_frame,
-        base_frame_id=base_frame,
-        timestamp_processing_config=pipeline_config.timestamps,
+        lio_cfg=user_config,
     )
-    print("Loaded dataloader:", dataloader)
+    print('Loaded dataloader:', dataloader)
 
-    user_ext_imu2base = pipeline_config.extrinsic_imu2base
-    user_ext_lidar2base = pipeline_config.extrinsic_lidar2base
-    if user_ext_imu2base is None or user_ext_lidar2base is None:
-        info("Extrinsics missing or not fully specified in config.")
-        dl_ext_imu2base, dl_ext_lidar2base = dataloader.extrinsics
-        if user_ext_imu2base is None:
-            pipeline_config.extrinsic_imu2base = dl_ext_imu2base
-        if user_ext_lidar2base is None:
-            pipeline_config.extrinsic_lidar2base = dl_ext_lidar2base
-
+    # try setup TF from config
+    user_config.tf_cfg.init_tf()
     if (
-        pipeline_config.extrinsic_imu2base is None
-        or pipeline_config.extrinsic_lidar2base is None
+        user_config.tf_cfg.extrinsic_imu2base is None
+        or user_config.tf_cfg.extrinsic_lidar2base is None
     ):
-        error_and_exit(
-            "Fatal: Could not obtain required IMU/Lidar extrinsics. Please specify in a config or as part of your data."
-        )
+        info('Extrinsics missing or not fully specified in config.')
+        dl_ext_imu2base, dl_ext_lidar2base = dataloader.extrinsics
+        if dl_ext_imu2base is None or dl_ext_lidar2base is None:
+            error_and_exit(
+                'Fatal: Could not obtain required IMU/Lidar extrinsics. Please specify in a config or as part of your data.'
+            )
+        else:
+            user_config.tf_cfg.extrinsic_imu2base = dl_ext_imu2base
+            user_config.tf_cfg.extrinsic_lidar2base = dl_ext_lidar2base
 
     from .util import transform_to_quat_xyzw_xyz
 
-    print("Resolved extrinsics:")
+    print('Resolved extrinsics:')
+    print('  IMU to Base:', transform_to_quat_xyzw_xyz(user_config.tf_cfg.extrinsic_imu2base))
     print(
-        "  IMU to Base:", transform_to_quat_xyzw_xyz(pipeline_config.extrinsic_imu2base)
-    )
-    print(
-        "  Lidar to Base:",
-        transform_to_quat_xyzw_xyz(pipeline_config.extrinsic_lidar2base),
+        '  Lidar to Base:',
+        transform_to_quat_xyzw_xyz(user_config.tf_cfg.extrinsic_lidar2base),
     )
 
     from .lio_pipeline import LIOPipeline
 
-    pipeline = LIOPipeline(pipeline_config)
+    pipeline = LIOPipeline(user_config)
 
     from tqdm import tqdm
 
-    for kind, data_tuple in tqdm(dataloader, total=len(dataloader), desc="Data"):
-        if kind == "imu":
+    for kind, data_tuple in tqdm(dataloader, total=len(dataloader), desc='Data'):
+        if kind == 'imu':
             pipeline.add_imu(*data_tuple)
-        elif kind == "lidar":
+        elif kind == 'lidar':
             pipeline.add_lidar(*data_tuple)
 
-    if log_results:
+    if user_config.log_cfg.log_results:
         pipeline.dump_results_to_disk()
 
 
-if __name__ == "__main__":
+@app.callback()
+def cli_callback(
+    ctx: typer.Context,
+    config_file: Path | None = typer.Option(
+        None,
+        '--config',
+        '-c',
+        exists=True,
+        help='Path to config.yaml',
+        file_okay=True,
+        dir_okay=False,
+        readable=True,
+    ),
+    version: bool | None = typer.Option(
+        None,
+        '--version',
+        help='Print the current version of RKO_LIO and exit',
+        callback=version_callback,
+        is_eager=True,
+    ),
+):
+    if config_file and config_file.exists():
+        # try loading config from yaml
+        yaml_obj = yaml.safe_load(config_file.read_text())
+        cfg_loaded = PipelineConfig.model_validate(yaml_obj)
+    else:
+        # otherwise initialize pipeline with default config
+        info(f'No YAML config given, starting with default params..')
+        cfg_loaded = PipelineConfig()
+    ctx.obj = cfg_loaded
+
+
+@app.command(help='Dump the default config to config.yaml and exit')
+def dump_config(ctx: typer.Context):
+    dump_config_callback()
+
+
+if __name__ == '__main__':
     app()

@@ -20,74 +20,79 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import sys
 from pathlib import Path
+
+from rko_lio.config.pipeline_config import PipelineConfig
 
 
 def available_dataloaders():
     return ['rosbag', 'raw', 'helipr', 'ouster']
 
 
-def dataloader_factory(name: str | None, data_path: Path, *args, **kwargs):
-    if name is None:
-        return guess_dataloader(data_path=data_path, *args, **kwargs)
+def dataloader_factory(lio_cfg: PipelineConfig, *args, **kwargs):
+    dataloader_name = lio_cfg.data_loader_cfg.name
+    if dataloader_name is None:
+        return guess_dataloader(lio_cfg, *args, **kwargs)
+        pass
 
-    elif name == "rosbag":
+    elif dataloader_name == 'rosbag':
         from .rosbag import RosbagDataLoader
 
-        return RosbagDataLoader(data_path, *args, **kwargs)
+        return RosbagDataLoader(lio_cfg, *args, **kwargs)
 
-    elif name == "raw":
+    elif dataloader_name == 'raw':
         from .raw import RawDataLoader
 
-        return RawDataLoader(data_path, *args, **kwargs)
+        return RawDataLoader(lio_cfg, *args, **kwargs)
 
-    elif name == "helipr":
+    elif dataloader_name == 'helipr':
         from .helipr import HeliprDataLoader
 
-        return HeliprDataLoader(data_path, *args, **kwargs)
+        return HeliprDataLoader(lio_cfg, *args, **kwargs)
 
-    elif name == "ouster":
+    elif dataloader_name == 'ouster':
         from .ouster_packets import OusterPacketLoader
 
-        return OusterPacketLoader(data_path, *args, **kwargs)
+        return OusterPacketLoader(lio_cfg, *args, **kwargs)
 
-    raise ValueError(f"Unknown dataloader: {name}")
+    raise ValueError(f'Unknown dataloader: {dataloader_name}')
 
 
-def guess_dataloader(data_path: Path, *args, **kwargs):
+def guess_dataloader(lio_cfg: PipelineConfig, *args, **kwargs):
     from ..util import error_and_exit, info
 
     # rosbag
-    rosbag_exts = [".bag", ".db3", ".mcap"]
+    rosbag_exts = ['.bag', '.db3', '.mcap']
+    data_path = Path(lio_cfg.data_loader_cfg.data_path)
     for ext in rosbag_exts:
-        matched_files = list(data_path.glob(f"*{ext}"))
+        matched_files = list(data_path.glob(f'*{ext}'))
         if matched_files:
-            info("Guessed dataloader as rosbag!")
-            return dataloader_factory("rosbag", data_path, *args, **kwargs)
+            lio_cfg.data_loader_cfg.name = 'rosbag'
+            info('Guessed dataloader as rosbag!')
+            return dataloader_factory(lio_cfg, *args, **kwargs)
 
     # raw data. Check if it contains
     #   - folder named 'lidar' and any .txt or .csv file
-    #   - or a file named "rko_lio_settings.yaml" exists
-    lidar_folder = data_path / "lidar"
-    txt_files = list(data_path.glob("*.txt"))
-    csv_files = list(data_path.glob("*.csv"))
-    rko_lio_settings_file = data_path / "rko_lio_settings.yaml"
-    if rko_lio_settings_file.exists() or (
-        lidar_folder.is_dir() and (txt_files or csv_files)
-    ):
-        info("Guessed dataloader as raw!")
-        return dataloader_factory("raw", data_path, *args, **kwargs)
+    #   - or a file named 'rko_lio_settings.yaml' exists
+    lidar_folder = data_path / 'lidar'
+    txt_files = list(data_path.glob('*.txt'))
+    csv_files = list(data_path.glob('*.csv'))
+    rko_lio_settings_file = data_path / 'rko_lio_settings.yaml'
+    if rko_lio_settings_file.exists() or (lidar_folder.is_dir() and (txt_files or csv_files)):
+        info('Guessed dataloader as raw!')
+        lio_cfg.data_loader_cfg.name = 'raw'
+        return dataloader_factory(lio_cfg, *args, **kwargs)
 
     # helipr has a dataset specified file layout
-    xsens_imu_path = data_path / "Inertial_data" / "xsens_imu.csv"
-    lidar_folder = data_path / "LiDAR"
+    xsens_imu_path = data_path / 'Inertial_data' / 'xsens_imu.csv'
+    lidar_folder = data_path / 'LiDAR'
 
     if xsens_imu_path.is_file() and lidar_folder.is_dir():
-        info("Guessed dataloader as Helipr!")
-        return dataloader_factory("helipr", data_path, *args, **kwargs)
+        info('Guessed dataloader as Helipr!')
+        lio_cfg.data_loader_cfg.name = 'helipr'
+        return dataloader_factory(lio_cfg, *args, **kwargs)
 
     # nothing guessed
     error_and_exit(
-        f"Could not guess dataloader for path: {data_path}, please pass the loader with --dataloader or -d"
+        f'Could not guess dataloader for path: {data_path}, please pass the loader with --dataloader or -d'
     )

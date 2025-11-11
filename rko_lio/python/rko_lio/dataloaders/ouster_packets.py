@@ -1,10 +1,14 @@
-import logging
 import math
 from pathlib import Path
-from typing import Optional
+
 import numpy as np
-from ..config import TimestampProcessingConfig
-from ..util import error_and_exit, info
+from ouster.sdk.bag import BagPacketSource
+from ouster.sdk.core import ImuPacket, LidarPacket, PacketFormat, XYZLut, destagger
+from ouster.sdk.util.parsing import packets_to_scan
+from rko_lio.config.pipeline_config import PipelineConfig
+from rko_lio.dataloaders.utils.static_tf_tree import create_static_tf_tree, query_static_tf
+from rko_lio.scoped_profiler import ScopedProfiler
+from rko_lio.util import error_and_exit, info
 
 try:
     from rosbags.highlevel import AnyReader
@@ -12,21 +16,7 @@ except ModuleNotFoundError:
     error_and_exit(
         'rosbags library not installed for using rosbag dataloader, please install with "pip install -U rosbags"'
     )
-from ..scoped_profiler import ScopedProfiler
-from .utils.static_tf_tree import create_static_tf_tree, query_static_tf
-from ouster.sdk.bag import BagPacketSource
-from ouster.sdk.core import (
-    PacketFormat,
-    LidarPacket,
-    ImuPacket,
-    XYZLut,
-    destagger,
-)
-from ouster.sdk.util.parsing import packets_to_scan
 
-
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger('mapping')
 
 G_FORCE_ = 9.80665
 
@@ -34,22 +24,18 @@ G_FORCE_ = 9.80665
 class OusterPacketLoader:
     def __init__(
         self,
-        data_path: Path,
-        imu_frame_id: str | None,
-        lidar_frame_id: str | None,
-        base_frame_id: str | None,
-        timestamp_processing_config: TimestampProcessingConfig,
-        sensor_metadata: Optional[str] = None,
+        lio_cfg: PipelineConfig,
         *args,
         **kwargs,
     ):
-        logger.info(f'Try loading Ouster record from: {data_path}')
-        self.record_path = data_path
+        self.record_path = lio_cfg.data_loader_cfg.data_path
         self.num_lidar_scans = 0
         self.num_imu_msgs = 0
+        self.ouster_cfg = lio_cfg.data_loader_cfg.ouster_cfg
         # load bag/mcap with optional metadata
         data_source = BagPacketSource(
-            bag_path=self.record_path, meta=sensor_metadata if sensor_metadata is not None else None
+            bag_path=self.record_path,
+            meta=[self.ouster_cfg.metadata] if self.ouster_cfg.metadata is not None else None,
         )
         # create iterator
         self.packet_iter = iter(data_source)
@@ -67,11 +53,12 @@ class OusterPacketLoader:
         self.T_imu_to_base = None
         self.T_lidar_to_base = None
         # TODO inject properly
-        self.imu_frame_id = imu_frame_id
-        self.lidar_frame_id = lidar_frame_id
-        self.base_frame_id = base_frame_id or self.lidar_frame_id
+        self.imu_frame_id = lio_cfg.data_loader_cfg.rosbag_cfg.imu_frame_id
+        self.lidar_frame_id = lio_cfg.data_loader_cfg.rosbag_cfg.lidar_frame_id
+        self.base_frame_id = lio_cfg.data_loader_cfg.rosbag_cfg.base_frame_id or self.lidar_frame_id
         # additional bag reader, used for TF extraction
-        self.bag = AnyReader([data_path])
+        bag_path = [Path(self.record_path)]
+        self.bag = AnyReader(bag_path)
         self.record_duration = 0
 
     def __iter__(self):
@@ -79,7 +66,7 @@ class OusterPacketLoader:
 
     def __next__(self):
         while True:
-            with ScopedProfiler("Ouster Dataloader") as data_timer:
+            with ScopedProfiler('Ouster Dataloader') as data_timer:
 
                 idx, packet = next(self.packet_iter)
                 if packet is None:
@@ -100,9 +87,14 @@ class OusterPacketLoader:
     def __len__(self):
         return self.num_imu_msgs + self.num_lidar_scans
 
+    def __del__(self):
+        if self.bag.isopen:
+            self.bag.close()
+
     @property
     def extrinsics(self):
         self.bag.open()
+        info(f'rosbag in ouster opened')
         if self.T_imu_to_base is None or self.T_lidar_to_base is None:
             info('Trying to obtain extrinsics from the data.')
             print('Building TF tree.')
@@ -154,6 +146,8 @@ class OusterPacketLoader:
         # project scan into 3D cartesian coordinates
         xyz_destaggered = destagger(self.ouster_metadata, self.xyzlut(lidar_scan))
         # TODO: filter by range
+        # range_destaggered = destagger(self.ouster_metadata, lidar_scan.field(ChanField.RANGE))
+        # xyz_filtered = xyz_destaggered * (range_destaggered[:, :, np.newaxis] > (range_min * 1000))
 
         # extract timestamps and convert from nanosec to seconds
         timestamps = lidar_scan.timestamp / 1e9

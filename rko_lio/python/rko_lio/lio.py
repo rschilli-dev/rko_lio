@@ -26,7 +26,7 @@ Public interface classes for the pybind.
 
 import numpy as np
 
-from .config import LIOConfig
+from rko_lio.config.pipeline_config import LIOConfig
 from .rko_lio_pybind import (
     _LIO,
     _IntervalStats,
@@ -102,7 +102,7 @@ class IntervalStats:
 class LIO:
     def __init__(self, config: LIOConfig):
         self.config = config
-        self._impl = _LIO(config)
+        self._impl = _LIO(config.to_cpp())
 
     def __repr__(self):
         return f"LIO with config: {repr(self.config)}"

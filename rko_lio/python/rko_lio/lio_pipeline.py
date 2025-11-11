@@ -32,7 +32,7 @@ from pathlib import Path
 import numpy as np
 import yaml
 
-from .config import PipelineConfig
+from rko_lio.config.pipeline_config import PipelineConfig
 from .lio import LIO
 from .scoped_profiler import ScopedProfiler
 from .util import (
@@ -55,7 +55,7 @@ class LIOPipeline:
         config: PipelineConfig,
     ):
         self.config = config
-        self.lio = LIO(config.lio)
+        self.lio = LIO(config.lio_cfg)
 
         # Each: dict with keys 'time', 'accel', 'gyro'
         self.imu_buffer: list[dict] = []
@@ -85,10 +85,11 @@ class LIOPipeline:
         Automatically bumps the index (from 0) if similar names exist, to avoid overwriting.
         """
         if self._output_dir is None:
-            self.config.log_dir.mkdir(parents=True, exist_ok=True)
+            log_dir = Path(self.config.log_cfg.log_dir)
+            log_dir.mkdir(parents=True, exist_ok=True)
             index = 0
             while True:
-                output_dir = self.config.log_dir / f"{self.config.run_name}_{index}"
+                output_dir = log_dir / f'{self.config.log_cfg.run_name}_{index}'
                 if not output_dir.exists():
                     break
                 index += 1
@@ -171,9 +172,9 @@ class LIOPipeline:
                     imu for imu in self.imu_buffer if imu["time"] < frame["end_time"]
                 ]
                 for imu in imu_to_process:
-                    if self.config.extrinsic_imu2base is not None:
+                    if self.config.tf_cfg.extrinsic_imu2base is not None:
                         self.lio.add_imu_measurement_with_extrinsic(
-                            self.config.extrinsic_imu2base,
+                            self.config.tf_cfg.extrinsic_imu2base,
                             imu["acceleration"],
                             imu["angular_velocity"],
                             imu["time"],
@@ -221,10 +222,10 @@ class LIOPipeline:
 
                 # Register the lidar scan
                 try:
-                    if self.config.extrinsic_lidar2base is not None:
+                    if self.config.tf_cfg.extrinsic_lidar2base is not None:
                         # TODO: rerun the deskewed scan as well, but there is some flickering in the viz for some reason
                         deskewed_scan = self.lio.register_scan_with_extrinsic(
-                            self.config.extrinsic_lidar2base,
+                            self.config.tf_cfg.extrinsic_lidar2base,
                             frame["scan"],
                             frame["timestamps"],
                         )
@@ -240,7 +241,7 @@ class LIOPipeline:
                     )
                     continue
 
-            if self.config.dump_deskewed_scans:
+            if self.config.log_cfg.dump_deskewed_scans:
                 save_scan_as_ply(
                     deskewed_scan,
                     frame["end_time"],
@@ -303,7 +304,7 @@ class LIOPipeline:
                 f.write(line)
         info(f"Poses written to {traj_file.resolve()}")
 
-        config = self.config.to_dict()
+        config = self.config.model_dump()
         settings_file = self.output_dir / "settings.yaml"
         with settings_file.open("w") as f:
             yaml.dump(config, f, sort_keys=False)

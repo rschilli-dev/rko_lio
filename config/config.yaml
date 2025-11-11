@@ -1,0 +1,47 @@
+data_loader_cfg:
+  data_path: null
+  name: null
+  rosbag_cfg:
+    imu_topic: null
+    imu_frame_id: null
+    lidar_topic: null
+    lidar_frame_id: null
+    base_frame_id: null
+  helipr_cfg:
+    sequence: null
+  ouster_cfg:
+    metadata: null
+lio_cfg:
+  deskew: true
+  max_iterations: 100
+  voxel_size: 1.0
+  max_points_per_voxel: 20
+  max_range: 100.0
+  min_range: 1.0
+  convergence_criterion: 1.0e-05
+  max_correspondance_distance: 0.5
+  max_num_threads: 0
+  initialization_phase: false
+  max_expected_jerk: 3.0
+  double_downsample: true
+  min_beta: 200.0
+tsp_cfg:
+  multiplier_to_seconds: 0.0
+  force_absolute: false
+  force_relative: false
+  absolute_start_threshold: 1
+  absolute_end_threshold: 1
+  relative_start_threshold: 10
+  relative_end_threshold: 10
+tf_cfg:
+  extrinsic_imu2base_quat_xyzw_xyz: null
+  extrinsic_lidar2base_quat_xyzw_xyz: null
+  tf_file: null
+log_cfg:
+  log_results: false
+  log_dir: 'results'
+  dump_deskewed_scans: false
+  run_name: null
+viz: false
+reset_viz: true
+viz_every_n_frames: 20

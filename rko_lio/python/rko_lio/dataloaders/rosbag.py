@@ -63,7 +63,7 @@ except ModuleNotFoundError:
     )
 
 from .. import rko_lio_pybind
-from ..config import TimestampProcessingConfig
+from rko_lio.config.pipeline_config import PipelineConfig
 from ..scoped_profiler import ScopedProfiler
 from .utils.ros_read_point_cloud import read_point_cloud as ros_read_point_cloud
 from .utils.static_tf_tree import create_static_tf_tree, query_static_tf
@@ -72,13 +72,7 @@ from .utils.static_tf_tree import create_static_tf_tree, query_static_tf
 class RosbagDataLoader:
     def __init__(
         self,
-        data_path: Path,
-        imu_topic: str | None,
-        lidar_topic: str | None,
-        imu_frame_id: str | None,
-        lidar_frame_id: str | None,
-        base_frame_id: str | None,
-        timestamp_processing_config: TimestampProcessingConfig,
+        lio_cfg: PipelineConfig,
         *args,
         **kwargs,
     ):
@@ -86,7 +80,9 @@ class RosbagDataLoader:
         # assert (
         #     data_path.is_dir()
         # ), "Pass a directory to data_path with ros1 or ros2 bag files"
-
+        data_path = lio_cfg.data_loader_cfg.data_path
+        if not isinstance(data_path, Path):
+            data_path = Path(data_path)
         ros1_bagfiles = sorted(list(data_path.glob("*.bag")))
         bagfiles = None
         if ros1_bagfiles:
@@ -104,10 +100,11 @@ class RosbagDataLoader:
         self.bag.open()
 
         self.lidar_topic = self.check_topic(
-            lidar_topic, expected_msgtype="sensor_msgs/msg/PointCloud2"
+            lio_cfg.data_loader_cfg.rosbag_cfg.lidar_topic,
+            expected_msgtype="sensor_msgs/msg/PointCloud2",
         )
         self.imu_topic = self.check_topic(
-            imu_topic, expected_msgtype="sensor_msgs/msg/Imu"
+            lio_cfg.data_loader_cfg.rosbag_cfg.imu_topic, expected_msgtype="sensor_msgs/msg/Imu"
         )
 
         self.connections = [
@@ -116,11 +113,15 @@ class RosbagDataLoader:
             if (x.topic == self.imu_topic or x.topic == self.lidar_topic)
         ]
 
-        self.imu_frame_id = imu_frame_id or self._read_first_frame_id(self.imu_topic)
-        self.lidar_frame_id = lidar_frame_id or self._read_first_frame_id(
-            self.lidar_topic
+        self.imu_frame_id = (
+            lio_cfg.data_loader_cfg.rosbag_cfg.imu_frame_id
+            or self._read_first_frame_id(self.imu_topic)
         )
-        self.base_frame_id = base_frame_id or self.lidar_frame_id
+        self.lidar_frame_id = (
+            lio_cfg.data_loader_cfg.rosbag_cfg.lidar_frame_id
+            or self._read_first_frame_id(self.lidar_topic)
+        )
+        self.base_frame_id = lio_cfg.data_loader_cfg.rosbag_cfg.base_frame_id or self.lidar_frame_id
         if self.base_frame_id is None:
             error_and_exit(
                 f"Could not automatically determine a base frame id. Please pass it with --base_frame."
@@ -131,7 +132,7 @@ class RosbagDataLoader:
 
         self.msgs = self.bag.messages(connections=self.connections)
 
-        self.timestamp_processing_config = timestamp_processing_config
+        self.timestamp_processing_config = lio_cfg.tsp_cfg.to_cpp()
 
     def __del__(self):
         if hasattr(self, "bag"):
