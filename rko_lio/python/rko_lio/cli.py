@@ -240,24 +240,6 @@ def pipeline(
     if not run_name:
         user_config.log_cfg.run_name = Path(user_config.data_loader_cfg.data_path).name
 
-    if user_config.viz:
-        try:
-            import rerun as rr
-
-            rr.init('rko_lio')
-            rr.spawn(memory_limit='2GB')
-            if user_config.reset_viz:
-                rr.log_file_from_path(
-                    Path(__file__).parent / 'rko_lio.rbl' if rbl_path is None else rbl_path
-                )
-
-        except ImportError:
-            error_and_exit(
-                "Please install rerun with `pip install rerun-sdk` to enable visualization."
-            )
-
-    # pipeline_config = PipelineConfig(**user_config)
-
     from .dataloaders import dataloader_factory
 
     dataloader = dataloader_factory(
@@ -289,6 +271,23 @@ def pipeline(
         '  Lidar to Base:',
         transform_to_quat_xyzw_xyz(user_config.tf_cfg.extrinsic_lidar2base),
     )
+
+    # only start visualization when everything is valid
+    if user_config.viz:
+        try:
+            import rerun as rr
+
+            rr.init('rko_lio')
+            rr.spawn(memory_limit='2GB')
+            if user_config.reset_viz:
+                rr.log_file_from_path(
+                    Path(__file__).parent / 'rko_lio.rbl' if rbl_path is None else rbl_path
+                )
+
+        except ImportError:
+            error_and_exit(
+                "Please install rerun with `pip install rerun-sdk` to enable visualization."
+            )
 
     from .lio_pipeline import LIOPipeline
 
