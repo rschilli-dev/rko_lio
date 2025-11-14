@@ -63,6 +63,17 @@ class OusterPacketLoader:
         self.bag = AnyReader(bag_path)
         self.record_duration = 0
         self.replay_duration = None
+        self.external_imu = False
+        if lio_cfg.data_loader_cfg.rosbag_cfg.imu_topic != '/ouster/imu_packets':
+            info(f'try setup for external imu topic instead of ouster imu')
+            self.external_imu = True
+            self.imu_topic = lio_cfg.data_loader_cfg.rosbag_cfg.imu_topic
+            self.bag.open()
+            self.imu_topic_connection = [
+                x for x in self.bag.connections if (x.topic == self.imu_topic)
+            ]
+            self.imu_msgs = self.bag.messages(connections=self.imu_topic_connection)
+            self.num_imu_msgs = self.bag.topics[self.imu_topic].msgcount
 
     def __iter__(self):
         return self
@@ -75,8 +86,6 @@ class OusterPacketLoader:
                 idx, packet = next(self.packet_iter)
                 if packet is None:
                     continue
-                if isinstance(packet, ImuPacket):
-                    return 'imu', self.read_imu_from_packet(packet)
                 if isinstance(packet, LidarPacket):
                     cur_id = packet.frame_id()
                     if self.cur_lidar_frame_id is None:
@@ -87,6 +96,14 @@ class OusterPacketLoader:
                         # reset to new frameID
                         self.cur_lidar_frame_id = cur_id
                         return 'lidar', self.read_lidar_scan_from_packets()
+                else:
+                    if not self.external_imu:
+                        if isinstance(packet, ImuPacket):
+                            return 'imu', self.read_imu_from_packet(packet)
+                    else:
+                        conn, ts, raw_data = next(self.imu_msgs)
+                        deserialized_data = self.bag.deserialize(raw_data, conn.msgtype)
+                        return 'imu', self.read_external_imu_topic(deserialized_data)
 
     def __len__(self):
         return self.num_imu_msgs + self.num_lidar_scans
@@ -105,7 +122,8 @@ class OusterPacketLoader:
 
     @property
     def extrinsics(self):
-        self.bag.open()
+        if not self.external_imu:
+            self.bag.open()
         if self.T_imu_to_base is None or self.T_lidar_to_base is None:
             info('Trying to obtain extrinsics from the data.')
             print('Building TF tree.')
@@ -126,12 +144,14 @@ class OusterPacketLoader:
                 static_tf_tree, self.lidar_frame_id, self.base_frame_id
             )
         # additionaly extract msg count from record
-        self.num_imu_msgs = self.bag.topics['/ouster/imu_packets'].msgcount
+
         self.num_lidar_scans = int(
             self.bag.topics['/ouster/lidar_packets'].msgcount / self.lidar_packets_per_frame
         )
         self.record_duration = self.bag.duration / 1e9
-        self.bag.close()
+        if not self.external_imu:
+            self.num_imu_msgs = self.bag.topics['/ouster/imu_packets'].msgcount
+            self.bag.close()
         return self.T_imu_to_base, self.T_lidar_to_base
 
     def read_imu_from_packet(self, imu_packet: ImuPacket):
@@ -148,6 +168,21 @@ class OusterPacketLoader:
             math.radians(self.packet_format.imu_av_x(imu_packet.buf)),
             math.radians(self.packet_format.imu_av_y(imu_packet.buf)),
             math.radians(self.packet_format.imu_av_z(imu_packet.buf)),
+        ]
+        return timestamp, accel, gyro
+
+    def read_external_imu_topic(self, data):
+        header_stamp = data.header.stamp
+        timestamp = header_stamp.sec + (header_stamp.nanosec / 1e9)
+        gyro = [
+            data.angular_velocity.x,
+            data.angular_velocity.y,
+            data.angular_velocity.z,
+        ]
+        accel = [
+            data.linear_acceleration.x,
+            data.linear_acceleration.y,
+            data.linear_acceleration.z,
         ]
         return timestamp, accel, gyro
 
