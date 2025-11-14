@@ -30,17 +30,15 @@ The difference is this is not multi-threaded, therefore is a bit slower.
 from pathlib import Path
 
 import numpy as np
-import yaml
-
 from rko_lio.config.pipeline_config import PipelineConfig
-from .lio import LIO
-from .scoped_profiler import ScopedProfiler
-from .util import (
+from rko_lio.lio import LIO
+from rko_lio.scoped_profiler import ScopedProfiler
+from rko_lio.util import (
     height_colors_from_points,
     info,
-    save_scan_as_ply,
-    transform_to_quat_xyzw_xyz,
+    save_scan_to_file,
 )
+import yaml
 
 
 class LIOPipeline:
@@ -56,6 +54,12 @@ class LIOPipeline:
     ):
         self.config = config
         self.lio = LIO(config.lio_cfg)
+        if config.log_cfg.dump_local_map:
+            # save local map every X moved meters
+            self.map_dump_trigger_distance = config.lio_cfg.max_range / 2
+            self.accum_traj = 0.0
+            self.last_xyz = np.zeros(3)
+            self.local_map_written = False
 
         # Each: dict with keys 'time', 'accel', 'gyro'
         self.imu_buffer: list[dict] = []
@@ -141,9 +145,7 @@ class LIOPipeline:
             Absolute timestamps (seconds) for each point.
         """
 
-        start_time, end_time = np.min(np.asarray(timestamps)), np.max(
-            np.asarray(timestamps)
-        )
+        start_time, end_time = np.min(np.asarray(timestamps)), np.max(np.asarray(timestamps))
         self.lidar_buffer.append(
             {
                 "scan": scan,
@@ -168,9 +170,7 @@ class LIOPipeline:
             with ScopedProfiler("Pipeline - Registration") as registration_timer:
                 frame = self.lidar_buffer.pop(0)
                 # Find all IMU measurements up to lidar end_time
-                imu_to_process = [
-                    imu for imu in self.imu_buffer if imu["time"] < frame["end_time"]
-                ]
+                imu_to_process = [imu for imu in self.imu_buffer if imu["time"] < frame["end_time"]]
                 for imu in imu_to_process:
                     if self.config.tf_cfg.extrinsic_imu2base is not None:
                         self.lio.add_imu_measurement_with_extrinsic(
@@ -186,9 +186,7 @@ class LIOPipeline:
                             imu["time"],
                         )
                 if self.config.viz and len(imu_to_process):
-                    times = np.array(
-                        [imu["time"] for imu in imu_to_process], dtype=np.float64
-                    )
+                    times = np.array([imu["time"] for imu in imu_to_process], dtype=np.float64)
                     accels = np.array(
                         [imu["acceleration"] for imu in imu_to_process],
                         dtype=np.float64,
@@ -198,21 +196,13 @@ class LIOPipeline:
                         dtype=np.float64,
                     )
                     log_vector_columns(self.rerun, "imu/acceleration", times, accels)
-                    log_vector_columns(
-                        self.rerun, "imu/angular_velocity", times, ang_vels
-                    )
+                    log_vector_columns(self.rerun, "imu/angular_velocity", times, ang_vels)
                     # before the reset gets called in register scan
                     stats = self.lio.interval_stats()
                     self.rerun.set_time("data_time", timestamp=frame["end_time"])
-                    self.rerun.log(
-                        "imu/imu_count", self.rerun.Scalars(float(stats.imu_count))
-                    )
-                    log_vector(
-                        self.rerun, "imu/avg_acceleration", stats.avg_imu_accel()
-                    )
-                    log_vector(
-                        self.rerun, "imu/avg_body_acceleration", stats.avg_body_accel()
-                    )
+                    self.rerun.log("imu/imu_count", self.rerun.Scalars(float(stats.imu_count)))
+                    log_vector(self.rerun, "imu/avg_acceleration", stats.avg_imu_accel())
+                    log_vector(self.rerun, "imu/avg_body_acceleration", stats.avg_body_accel())
                     log_vector(self.rerun, "imu/avg_ang_velocity", stats.avg_ang_vel())
 
                 # Remove processed IMUs from buffer (those with time < lidar end_time)
@@ -240,12 +230,30 @@ class LIOPipeline:
                         e,
                     )
                     continue
-
+            if self.config.log_cfg.dump_local_map:
+                # calculate accumulated trajectory to check when to dump local map
+                pose = self.lio.pose()
+                cur_trans = pose[:3, 3].copy()
+                cur_delta = np.linalg.norm(cur_trans - self.last_xyz)
+                self.accum_traj += cur_delta
+                self.last_xyz = cur_trans
+                should_write_map = int(self.accum_traj) % self.map_dump_trigger_distance
+                if should_write_map == 0:
+                    self.local_map_written = False
+                if should_write_map == 1 and not self.local_map_written:
+                    save_scan_to_file(
+                        self.lio.map_point_cloud(),
+                        frame['end_time'],
+                        output_dir=self.output_dir / 'local_map',
+                        file_format=self.config.log_cfg.scan_dump_format,
+                    )
+                    self.local_map_written = True
             if self.config.log_cfg.dump_deskewed_scans:
-                save_scan_as_ply(
+                save_scan_to_file(
                     deskewed_scan,
-                    frame["end_time"],
-                    output_dir=self.output_dir / "deskewed_scans",
+                    frame['end_time'],
+                    output_dir=self.output_dir / 'deskewed_scans',
+                    file_format=self.config.log_cfg.scan_dump_format,
                 )
 
             if self.config.viz:
@@ -264,9 +272,7 @@ class LIOPipeline:
                     traj_pts = np.array([self.last_xyz, pose[:3, 3]])
                     self.rerun.log(
                         "world/trajectory",
-                        self.rerun.LineStrips3D(
-                            [traj_pts], radii=[0.1], colors=[255, 111, 111]
-                        ),
+                        self.rerun.LineStrips3D([traj_pts], radii=[0.1], colors=[255, 111, 111]),
                     )
                     self.last_xyz = pose[:3, 3].copy()
 
@@ -325,9 +331,7 @@ def log_vector(rerun, entity_path_prefix: str, vector):
     rerun.log(f"{entity_path_prefix}/z", rerun.Scalars(vector[2]))
 
 
-def log_vector_columns(
-    rerun, entity_path_prefix: str, times: np.ndarray, vectors: np.ndarray
-):
+def log_vector_columns(rerun, entity_path_prefix: str, times: np.ndarray, vectors: np.ndarray):
     """
     Log a batch of 3D vectors over multiple timestamps in rerun,
     sending one column batch per vector axis.

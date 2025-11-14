@@ -70,6 +70,8 @@ class LoggingConfig(BaseModel):
     log_results: bool = False
     log_dir: str = str(Path('results').resolve().as_posix())
     dump_deskewed_scans: Optional[bool] = False
+    dump_local_map: Optional[bool] = False
+    scan_dump_format: Optional[str] = 'ply'
     run_name: Optional[str] = None
 
 

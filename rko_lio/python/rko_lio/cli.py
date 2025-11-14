@@ -153,7 +153,19 @@ def pipeline(
     dump_deskewed_scans: bool = typer.Option(
         None,
         '--dump_deskewed',
-        help='Dump each deskewed/motion-undistorted scan as a .ply file under log_dir/run_name, only if logging with --log',
+        help='Dump each deskewed/motion-undistorted scan as a PLY/PCD file under log_dir/run_name, only if logging with --log',
+        rich_help_panel='Disk logging options',
+    ),
+    dump_local_map: bool = typer.Option(
+        None,
+        '--dump_map',
+        help='Dump a local map scan as a PLY/PCD file under log_dir/run_name, only if logging with --log',
+        rich_help_panel='Disk logging options',
+    ),
+    scan_dump_format: str | None = typer.Option(
+        None,
+        '--dump_format',
+        help='Define file format for scan/map dumping (PLY/PCD)',
         rich_help_panel='Disk logging options',
     ),
     sequence: str | None = typer.Option(
@@ -218,6 +230,10 @@ def pipeline(
         user_config.log_cfg.run_name = run_name
     if dump_deskewed_scans:
         user_config.log_cfg.dump_deskewed_scans = dump_deskewed_scans
+    if dump_local_map:
+        user_config.log_cfg.dump_local_map = dump_local_map
+    if scan_dump_format:
+        user_config.log_cfg.scan_dump_format = scan_dump_format
     if sequence:
         user_config.data_loader_cfg.helipr_cfg.sequence = sequence
     if imu_topic:
@@ -296,6 +312,9 @@ def pipeline(
     from tqdm import tqdm
 
     for kind, data_tuple in tqdm(dataloader, total=len(dataloader), desc='Data'):
+        # print(pipeline.lio.interval_stats().avg_imu_accel())
+        # print(pipeline.lio.interval_stats().avg_body_accel())
+        # print(pipeline.lio.interval_stats().avg_ang_vel())
         if kind == 'imu':
             pipeline.add_imu(*data_tuple)
         elif kind == 'lidar':
