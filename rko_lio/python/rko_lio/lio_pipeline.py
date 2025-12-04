@@ -88,12 +88,15 @@ class LIOPipeline:
         Folder is {log_dir}/{run_name}_{index}.
         Automatically bumps the index (from 0) if similar names exist, to avoid overwriting.
         """
+        from datetime import date
+
         if self._output_dir is None:
-            log_dir = Path(self.config.log_cfg.log_dir)
+            today = date.today().isoformat()
+            log_dir = Path(self.config.log_cfg.log_dir) / f'{today}'
             log_dir.mkdir(parents=True, exist_ok=True)
             index = 0
             while True:
-                output_dir = log_dir / f'{self.config.log_cfg.run_name}_{index}'
+                output_dir = log_dir / f'run_{index}'
                 if not output_dir.exists():
                     break
                 index += 1

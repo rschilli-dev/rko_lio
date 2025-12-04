@@ -50,6 +50,7 @@ class OusterPacketLoader:
         )
         # create XYZ converter to reduce overhead during iteration
         self.xyzlut = XYZLut(self.ouster_metadata)
+        self.xyzlut = XYZLut(self.ouster_metadata, use_extrinsics=True)
         self.lidar_packet_buffer = []
         self.cur_lidar_frame_id = None
         self.T_imu_to_base = None
