@@ -4,7 +4,7 @@ import time
 
 import numpy as np
 from ouster.sdk.bag import BagPacketSource
-from ouster.sdk.core import ImuPacket, LidarPacket, PacketFormat, XYZLut, destagger
+from ouster.sdk.core import ImuPacket, LidarPacket, PacketFormat, XYZLut, destagger, ChanField
 from ouster.sdk.util.parsing import packets_to_scan
 from rko_lio.config.pipeline_config import PipelineConfig
 from rko_lio.dataloaders.utils.static_tf_tree import create_static_tf_tree, query_static_tf
@@ -49,8 +49,9 @@ class OusterPacketLoader:
             / self.ouster_metadata.format.columns_per_packet
         )
         # create XYZ converter to reduce overhead during iteration
-        self.xyzlut = XYZLut(self.ouster_metadata)
+        # print(f'Sensor extrinsic: {self.ouster_metadata.extrinsic}')
         self.xyzlut = XYZLut(self.ouster_metadata, use_extrinsics=True)
+        # self.xyzlut = XYZLut(self.ouster_metadata)
         self.lidar_packet_buffer = []
         self.cur_lidar_frame_id = None
         self.T_imu_to_base = None
@@ -190,25 +191,29 @@ class OusterPacketLoader:
     def read_lidar_scan_from_packets(self):
         # convert multiple lidar packets to single scan
         lidar_scan = packets_to_scan(self.lidar_packet_buffer, self.ouster_metadata)
+        sel_flag_with_range_min = (
+            lidar_scan.field(ChanField.RANGE) > self.lio_cfg.lio_cfg.min_range * 1000.0
+        )
+        sel_flag_with_range_max = (
+            lidar_scan.field(ChanField.RANGE) < self.lio_cfg.lio_cfg.max_range * 1000.0
+        )
+        range_mask = sel_flag_with_range_min == sel_flag_with_range_max
         # project scan into 3D cartesian coordinates
         xyz_destaggered = destagger(self.ouster_metadata, self.xyzlut(lidar_scan))
-        # TODO: filter by range
-        # range_destaggered = destagger(self.ouster_metadata, lidar_scan.field(ChanField.RANGE))
-        # xyz_filtered = xyz_destaggered * (range_destaggered[:, :, np.newaxis] > (range_min * 1000))
+        xyz_sel = xyz_destaggered[range_mask]
 
         # extract timestamps and convert from nanosec to seconds
         timestamps = lidar_scan.timestamp / 1e9
         # create "flatten" array
-        points = xyz_destaggered.reshape(-1, 3)
+        points = xyz_sel.reshape(-1, 3)
         # adjust timestamps data to points
         timestamps_flat = (
-            np.repeat(timestamps, self.ouster_metadata.format.pixels_per_column)
-            .reshape(
+            np.repeat(timestamps, self.ouster_metadata.format.pixels_per_column).reshape(
                 self.ouster_metadata.format.pixels_per_column,
                 self.ouster_metadata.format.columns_per_frame,
             )
-            .T.reshape(-1)
-        )
+        )[range_mask].T.reshape(-1)
+
         # clear buffer for new frame
         self.lidar_packet_buffer.clear()
         return points, timestamps_flat
